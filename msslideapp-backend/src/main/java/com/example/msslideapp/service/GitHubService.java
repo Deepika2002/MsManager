@@ -194,11 +194,17 @@ public class GitHubService {
      */
     public String getFileContent(String filePath, String branchName) {
         try {
-            String url = String.format("%s/repos/%s/%s/contents/%s?ref=%s",
-                    GITHUB_API_BASE, repoOwner, repoName, filePath, branchName);
+            String url = String.format("%s/repos/%s/%s/contents/{path}?ref={ref}",
+                    GITHUB_API_BASE, repoOwner, repoName);
 
             HttpEntity<String> entity = new HttpEntity<>(createHeaders());
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+            Map<String, String> uriVariables = new HashMap<>();
+            uriVariables.put("path", filePath);
+            uriVariables.put("ref", branchName);
+
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class,
+                    uriVariables);
 
             if (response.getStatusCode() == HttpStatus.OK) {
                 JsonNode json = mapper.readTree(response.getBody());
@@ -209,9 +215,39 @@ public class GitHubService {
             }
         } catch (Exception e) {
             // File might not exist
+            System.err.println("Error fetching file content for " + filePath + ": " + e.getMessage());
             return null;
         }
         return null;
+    }
+
+    /**
+     * Get list of files in a directory
+     */
+    public List<String> getRepositoryFiles(String path) {
+        try {
+            String url = String.format("%s/repos/%s/%s/contents/{path}", GITHUB_API_BASE, repoOwner, repoName);
+            Map<String, String> uriVariables = new HashMap<>();
+            uriVariables.put("path", path);
+
+            HttpEntity<String> entity = new HttpEntity<>(createHeaders());
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class,
+                    uriVariables);
+
+            if (response.getStatusCode() == HttpStatus.OK) {
+                JsonNode json = mapper.readTree(response.getBody());
+                List<String> files = new ArrayList<>();
+                if (json.isArray()) {
+                    for (JsonNode node : json) {
+                        files.add(node.get("name").asText());
+                    }
+                }
+                return files;
+            }
+        } catch (Exception e) {
+            System.err.println("Error listing repo files: " + e.getMessage());
+        }
+        return Collections.emptyList();
     }
 
     /**
@@ -425,6 +461,8 @@ public class GitHubService {
             prDetails.put("title", json.get("title").asText());
             prDetails.put("head_branch", json.get("head").get("ref").asText());
             prDetails.put("base_branch", json.get("base").get("ref").asText());
+            prDetails.put("head_sha", json.get("head").get("sha").asText());
+            prDetails.put("base_sha", json.get("base").get("sha").asText());
             return prDetails;
         }
 
@@ -529,10 +567,18 @@ public class GitHubService {
         payload.put("body", comment != null ? comment : "Changes requested");
 
         HttpEntity<String> entity = new HttpEntity<>(mapper.writeValueAsString(payload), createHeaders());
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
 
-        if (response.getStatusCode() != HttpStatus.OK) {
-            throw new RuntimeException("Failed to reject PR: " + response.getBody());
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+            if (response.getStatusCode() != HttpStatus.OK) {
+                System.err.println("Failed to submit rejection review: " + response.getBody());
+            }
+        } catch (Exception e) {
+            // Ignore errors when rejecting (e.g. rejecting own PR), but still proceed to
+            // close
+            System.out
+                    .println("Warning: Could not submit rejection review (likely own PR). Proceeding to close. Error: "
+                            + e.getMessage());
         }
 
         // Close the PR

@@ -3,14 +3,19 @@ import React, { useState, useMemo } from 'react';
 export default function ChangePreview({ changes }) {
     const [selectedSheet, setSelectedSheet] = useState('All sheets');
     const [selectedFilter, setSelectedFilter] = useState('All');
+    const [selectedFile, setSelectedFile] = useState('All files');
 
-    // Group changes by sheet
-    const { sheets, summary } = useMemo(() => {
+    // Group changes by file and sheet
+    const { files, sheets, summary } = useMemo(() => {
+        const fileSet = new Set();
         const sheetMap = {};
         const summary = { total: 0, modified: 0, added: 0, deleted: 0 };
 
         changes.forEach(change => {
-            const sheet = change.sheet || 'Unknown';
+            const fileName = change.fileName || 'Unknown File';
+            fileSet.add(fileName);
+
+            const sheet = change.sheet || 'Unknown Sheet';
             if (!sheetMap[sheet]) {
                 sheetMap[sheet] = [];
             }
@@ -22,14 +27,18 @@ export default function ChangePreview({ changes }) {
             if (change.changeType === 'DELETED') summary.deleted++;
         });
 
-        return { sheets: sheetMap, summary };
+        return { files: Array.from(fileSet), sheets: sheetMap, summary };
     }, [changes]);
 
     const sheetNames = Object.keys(sheets);
 
-    // Filter changes based on selected sheet and filter
+    // Filter changes based on selected file, sheet and filter
     const filteredChanges = useMemo(() => {
         let filtered = changes;
+
+        if (selectedFile !== 'All files') {
+            filtered = filtered.filter(c => (c.fileName || 'Unknown File') === selectedFile);
+        }
 
         if (selectedSheet !== 'All sheets') {
             filtered = filtered.filter(c => c.sheet === selectedSheet);
@@ -40,7 +49,7 @@ export default function ChangePreview({ changes }) {
         }
 
         return filtered;
-    }, [changes, selectedSheet, selectedFilter]);
+    }, [changes, selectedFile, selectedSheet, selectedFilter]);
 
     // Format cell value with styles
     const formatCellValue = (value, meta, isOld) => {
@@ -107,6 +116,30 @@ export default function ChangePreview({ changes }) {
                 </div>
             </div>
 
+            {/* File selector */}
+            {files.length > 1 && (
+                <div className="sheet-selector">
+                    <h4>Files</h4>
+                    <div className="sheet-tabs">
+                        <button
+                            className={selectedFile === 'All files' ? 'active' : ''}
+                            onClick={() => setSelectedFile('All files')}
+                        >
+                            All files
+                        </button>
+                        {files.map(file => (
+                            <button
+                                key={file}
+                                className={selectedFile === file ? 'active' : ''}
+                                onClick={() => setSelectedFile(file)}
+                            >
+                                {file}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Sheets selector */}
             {sheetNames.length > 1 && (
                 <div className="sheet-selector">
@@ -164,6 +197,7 @@ export default function ChangePreview({ changes }) {
                 <table className="changes-table">
                     <thead>
                         <tr>
+                            <th>File</th>
                             <th>Sheet</th>
                             <th>Row</th>
                             <th>Col</th>
@@ -175,6 +209,7 @@ export default function ChangePreview({ changes }) {
                     <tbody>
                         {filteredChanges.map((change, idx) => (
                             <tr key={idx}>
+                                <td>{change.fileName || 'Unknown'}</td>
                                 <td>{change.sheet}</td>
                                 <td>{change.row}</td>
                                 <td>{change.col}</td>

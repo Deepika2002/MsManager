@@ -3,7 +3,7 @@ import { api } from '../utils/api';
 import ChangePreview from './ChangePreview';
 
 const UploadPage = () => {
-    const [file, setFile] = useState(null);
+    const [files, setFiles] = useState([]);
     const [commitMessage, setCommitMessage] = useState('');
     const [collaborators, setCollaborators] = useState([]);
     const [selectedApprovers, setSelectedApprovers] = useState([]);
@@ -26,9 +26,9 @@ const UploadPage = () => {
     };
 
     const handleFileChange = (e) => {
-        const selectedFile = e.target.files[0];
-        if (selectedFile) {
-            setFile(selectedFile);
+        const selectedFiles = Array.from(e.target.files);
+        if (selectedFiles.length > 0) {
+            setFiles(prev => [...prev, ...selectedFiles]);
             setChanges(null);
         }
     };
@@ -36,9 +36,12 @@ const UploadPage = () => {
     const handleDrop = (e) => {
         e.preventDefault();
         setDragOver(false);
-        const droppedFile = e.dataTransfer.files[0];
-        if (droppedFile && (droppedFile.name.endsWith('.xlsx') || droppedFile.name.endsWith('.xls'))) {
-            setFile(droppedFile);
+        const droppedFiles = Array.from(e.dataTransfer.files).filter(f =>
+            f.name.endsWith('.xlsx') || f.name.endsWith('.xls')
+        );
+
+        if (droppedFiles.length > 0) {
+            setFiles(prev => [...prev, ...droppedFiles]);
             setChanges(null);
         }
     };
@@ -50,6 +53,10 @@ const UploadPage = () => {
 
     const handleDragLeave = () => {
         setDragOver(false);
+    };
+
+    const removeFile = (index) => {
+        setFiles(prev => prev.filter((_, i) => i !== index));
     };
 
     const toggleApprover = (login) => {
@@ -65,8 +72,8 @@ const UploadPage = () => {
     };
 
     const handleUpload = async () => {
-        if (!file) {
-            alert('Please select a file');
+        if (files.length === 0) {
+            alert('Please select at least one file');
             return;
         }
 
@@ -77,11 +84,11 @@ const UploadPage = () => {
 
         setUploading(true);
         try {
-            const response = await api.uploadFile(file, commitMessage, selectedApprovers);
+            const response = await api.uploadFile(files, commitMessage, selectedApprovers);
             setChanges(response.changes);
 
             // Clear form
-            setFile(null);
+            setFiles([]);
             setCommitMessage('');
             setSelectedApprovers([]);
 
@@ -110,11 +117,11 @@ const UploadPage = () => {
         <div className="fade-in">
             <div className="page-header">
                 <h1 className="page-title">Upload & Review</h1>
-                <p className="page-subtitle">Upload your Excel file and review changes before committing</p>
+                <p className="page-subtitle">Upload your Excel files and review changes before committing</p>
             </div>
 
             <div className="card" style={{ marginBottom: '2rem' }}>
-                <h2 className="card-title">Upload File</h2>
+                <h2 className="card-title">Upload Files</h2>
 
                 <div
                     className={`file-upload-area ${dragOver ? 'drag-over' : ''}`}
@@ -125,17 +132,35 @@ const UploadPage = () => {
                 >
                     <div className="file-upload-icon">📁</div>
                     <div className="file-upload-text">
-                        {file ? file.name : 'Click to browse or drag and drop your Excel file here'}
+                        Click to browse or drag and drop your Excel files here
                     </div>
                     <div className="file-upload-hint">Supported formats: .xlsx, .xls</div>
                     <input
                         id="file-input"
                         type="file"
+                        multiple
                         accept=".xlsx,.xls"
                         onChange={handleFileChange}
                         style={{ display: 'none' }}
                     />
                 </div>
+
+                {files.length > 0 && (
+                    <div className="file-list" style={{ marginTop: '1rem' }}>
+                        {files.map((f, index) => (
+                            <div key={index} className="file-item" style={{ display: 'flex', alignItems: 'center', padding: '0.5rem', background: '#f9fafb', borderRadius: '4px', marginBottom: '0.5rem' }}>
+                                <span style={{ marginRight: '0.5rem' }}>📄</span>
+                                <span style={{ flex: 1 }}>{f.name}</span>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); removeFile(index); }}
+                                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1.2rem' }}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 <div className="form-group" style={{ marginTop: '1.5rem' }}>
                     <label className="form-label">Jira Ticket ID / Commit Message *</label>
@@ -193,7 +218,7 @@ const UploadPage = () => {
                 <button
                     className="btn btn-primary"
                     onClick={handleUpload}
-                    disabled={uploading || !file || !commitMessage.trim()}
+                    disabled={uploading || files.length === 0 || !commitMessage.trim()}
                 >
                     {uploading ? '⏳ Uploading...' : '✓ Commit Changes'}
                 </button>

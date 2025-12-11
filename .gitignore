@@ -39,3 +39,5 @@ build/
 coverage/
 .env
 .DS_Store
+msslideapp-backend/storage/uploads/
+msslideapp-backend/src/main/resources/application.properties

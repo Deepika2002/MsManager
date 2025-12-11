@@ -24,10 +24,10 @@ public class UploadController {
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public UploadResponse upload(
-            @RequestParam("file") MultipartFile file,
+            @RequestParam("file") List<MultipartFile> files,
             @RequestParam(value = "commitMessage", required = false) String commitMessage,
             @RequestParam(value = "approvers", required = false) List<String> approvers) throws Exception {
-        return excelService.handleUpload(file, commitMessage, approvers);
+        return excelService.handleUpload(files, commitMessage, approvers);
     }
 
     @GetMapping("/history")

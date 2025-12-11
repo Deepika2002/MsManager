@@ -4,9 +4,14 @@ const API_BASE = '/api';
 
 export const api = {
     // Upload file with commit message and approvers
-    uploadFile: async (file, commitMessage, approvers) => {
+    uploadFile: async (files, commitMessage, approvers) => {
         const formData = new FormData();
-        formData.append('file', file);
+        if (Array.isArray(files)) {
+            files.forEach(file => formData.append('file', file));
+        } else {
+            formData.append('file', files);
+        }
+
         if (commitMessage) {
             formData.append('commitMessage', commitMessage);
         }

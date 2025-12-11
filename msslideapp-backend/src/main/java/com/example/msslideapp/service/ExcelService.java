@@ -28,7 +28,7 @@ public class ExcelService {
         this.gitHubService = gitHubService;
     }
 
-    public UploadResponse handleUpload(MultipartFile file, String commitMessage, List<String> approvers)
+    public UploadResponse handleUpload(List<MultipartFile> files, String commitMessage, List<String> approvers)
             throws Exception {
         String basePath = System.getProperty("user.dir") + File.separator + "storage" + File.separator + "uploads";
         File uploadDir = new File(basePath);
@@ -36,43 +36,63 @@ public class ExcelService {
             throw new IOException("❌ Failed to create upload directory: " + uploadDir.getAbsolutePath());
         }
 
-        File saved = new File(uploadDir, UUID.randomUUID() + "-" + file.getOriginalFilename());
-        file.transferTo(saved);
-
-        System.out.println("✅ File saved to: " + saved.getAbsolutePath());
-
-        String newJson = converter.excelToJson(saved);
-        String filename = file.getOriginalFilename().replaceAll("\\.xlsx?$", "") + ".json";
-
-        // Get previous JSON from GitHub main branch to compare
-        String prevJson = gitHubService.getFileContent(filename, "main");
-
-        List<ChangeItem> changes = new ArrayList<ChangeItem>();
-        if (prevJson != null && !prevJson.trim().isEmpty()) {
-            changes = diffJson(prevJson, newJson);
-            System.out.println("ℹ️ Found previous version. Detected " + changes.size() + " changes.");
-        } else {
-            System.out.println("ℹ️ No previous version found for " + filename + " — first upload.");
-        }
-
-        // Use provided commit message or default
-        String message = (commitMessage != null && !commitMessage.isEmpty())
-                ? commitMessage
-                : "Upload: " + file.getOriginalFilename();
-
-        // Create a new branch
+        List<ChangeItem> allChanges = new ArrayList<>();
         String branchName = "feature/" + UUID.randomUUID().toString().substring(0, 8);
         gitHubService.createBranch(branchName);
 
-        // Commit to the new branch
-        gitHubService.commitFile(newJson, filename, message, "uploader", branchName);
+        StringBuilder commitMsgBuilder = new StringBuilder();
+        if (commitMessage != null && !commitMessage.isEmpty()) {
+            commitMsgBuilder.append(commitMessage);
+        } else {
+            commitMsgBuilder.append("Upload: ");
+        }
+
+        for (MultipartFile file : files) {
+            File saved = new File(uploadDir, UUID.randomUUID() + "-" + file.getOriginalFilename());
+            file.transferTo(saved);
+
+            System.out.println("✅ File saved to: " + saved.getAbsolutePath());
+
+            String newJson = converter.excelToJson(saved);
+            String filename = file.getOriginalFilename().replaceAll("\\.xlsx?$", "") + ".json";
+
+            // Get previous JSON from GitHub main branch to compare
+            String prevJson = gitHubService.getFileContent(filename, "main");
+
+            if (prevJson != null && !prevJson.trim().isEmpty()) {
+                List<ChangeItem> fileChanges = diffJson(prevJson, newJson);
+                for (ChangeItem item : fileChanges) {
+                    item.setFileName(file.getOriginalFilename());
+                }
+                allChanges.addAll(fileChanges);
+                System.out.println(
+                        "ℹ️ Found previous version for " + filename + ". Detected " + fileChanges.size() + " changes.");
+            } else {
+                System.out.println("ℹ️ No previous version found for " + filename + " — first upload.");
+            }
+
+            if (commitMsgBuilder.length() > (commitMessage == null ? 8 : commitMessage.length())) {
+                commitMsgBuilder.append(", ");
+            }
+            commitMsgBuilder.append(file.getOriginalFilename());
+
+            // Commit to the new branch
+            gitHubService.commitFile(newJson, filename, "Update " + file.getOriginalFilename(), "uploader", branchName);
+        }
+
+        String finalMessage = commitMsgBuilder.toString();
 
         // Create Pull Request
-        gitHubService.createPullRequest(message, "Changes uploaded via MsManager", branchName, approvers);
+        gitHubService.createPullRequest(finalMessage, "Changes uploaded via MsManager", branchName, approvers);
+
+        System.out.println("✅ Aggregated " + allChanges.size() + " total changes across " + files.size() + " files.");
 
         UploadResponse resp = new UploadResponse();
-        resp.setId(filename.replace(".json", ""));
-        resp.setChanges(changes);
+        // Since we have multiple files, using a single ID might be ambiguous, but let's
+        // just use the branch name or similar.
+        // Or we just return the first file's name or a generic ID.
+        resp.setId(branchName);
+        resp.setChanges(allChanges);
         return resp;
     }
 
@@ -130,34 +150,45 @@ public class ExcelService {
             Map<String, Object> prDetails = gitHubService.getPullRequestDetails(prNumber);
             String headBranch = (String) prDetails.get("head_branch");
             String baseBranch = (String) prDetails.get("base_branch");
+            String headSha = (String) prDetails.get("head_sha");
+            String baseSha = (String) prDetails.get("base_sha");
 
             // Get files changed in this PR
             List<String> changedFiles = gitHubService.getPullRequestFiles(prNumber);
+            System.out.println("DEBUG: PR #" + prNumber + " files: " + changedFiles);
 
-            // Find the first JSON file in the changed files
-            String jsonFile = null;
+            List<ChangeItem> allChanges = new ArrayList<>();
+
             for (String file : changedFiles) {
                 if (file.endsWith(".json")) {
-                    jsonFile = file;
-                    break;
+                    String originalExcelName = file.replaceAll("\\.json$", ".xlsx");
+
+                    // Get content from head and base via SHA (safer for merged PRs where branch is
+                    // deleted)
+                    String targetHead = (headSha != null) ? headSha : headBranch;
+                    String targetBase = (baseSha != null) ? baseSha : baseBranch;
+
+                    System.out.println("DEBUG: Fetching " + file + " from head: " + targetHead);
+                    String headJson = gitHubService.getFileContent(file, targetHead);
+                    System.out.println("DEBUG: Head content len: " + (headJson == null ? "null" : headJson.length()));
+
+                    System.out.println("DEBUG: Fetching " + file + " from base: " + targetBase);
+                    String baseJson = gitHubService.getFileContent(file, targetBase);
+                    System.out.println("DEBUG: Base content len: " + (baseJson == null ? "null" : baseJson.length()));
+
+                    // Calculate diff
+                    if (headJson != null) {
+                        List<ChangeItem> fileChanges = diffJson(baseJson, headJson);
+                        System.out.println("DEBUG: File " + file + " has " + fileChanges.size() + " diffs");
+                        for (ChangeItem item : fileChanges) {
+                            item.setFileName(originalExcelName);
+                        }
+                        allChanges.addAll(fileChanges);
+                    }
                 }
             }
 
-            if (jsonFile == null) {
-                System.out.println("No JSON file found in PR #" + prNumber);
-                return new ArrayList<>();
-            }
-
-            // Get content from head and base branches
-            String headJson = gitHubService.getFileContent(jsonFile, headBranch);
-            String baseJson = gitHubService.getFileContent(jsonFile, baseBranch);
-
-            // Calculate diff
-            if (headJson != null) {
-                return diffJson(baseJson, headJson);
-            }
-
-            return new ArrayList<>();
+            return allChanges;
         } catch (Exception e) {
             System.err.println("Error fetching PR changes: " + e.getMessage());
             e.printStackTrace();
@@ -170,41 +201,39 @@ public class ExcelService {
             // Get commit details
             Map<String, Object> details = gitHubService.getCommitDetails(sha);
 
-            // Find the JSON file that was changed
+            // Find all JSON files that were changed
             List<Map<String, String>> files = (List<Map<String, String>>) details.get("files");
-            String filename = null;
+            List<ChangeItem> allChanges = new ArrayList<>();
 
-            // We're looking for our specific JSON files
-            // But actually, we should just look for any JSON file that was modified/added
+            List<String> parents = (List<String>) details.get("parents");
+            String parentSha = (parents != null && !parents.isEmpty()) ? parents.get(0) : null;
+
             for (Map<String, String> file : files) {
-                String name = file.get("filename");
-                if (name.endsWith(".json")) {
-                    filename = name;
-                    break;
+                String filename = file.get("filename");
+                if (filename != null && filename.endsWith(".json")) {
+                    String originalExcelName = filename.replaceAll("\\.json$", ".xlsx");
+
+                    // Get content at current SHA
+                    String currentJson = gitHubService.getFileContent(filename, sha);
+
+                    // Get content at parent SHA
+                    String parentJson = null;
+                    if (parentSha != null) {
+                        parentJson = gitHubService.getFileContent(filename, parentSha);
+                    }
+
+                    // Calculate diff
+                    if (currentJson != null) {
+                        List<ChangeItem> fileChanges = diffJson(parentJson, currentJson);
+                        for (ChangeItem item : fileChanges) {
+                            item.setFileName(originalExcelName);
+                        }
+                        allChanges.addAll(fileChanges);
+                    }
                 }
             }
 
-            if (filename == null) {
-                return new ArrayList<>();
-            }
-
-            // Get content at current SHA
-            String currentJson = gitHubService.getFileContent(filename, sha);
-
-            // Get content at parent SHA
-            String parentJson = null;
-            List<String> parents = (List<String>) details.get("parents");
-            if (parents != null && !parents.isEmpty()) {
-                String parentSha = parents.get(0);
-                parentJson = gitHubService.getFileContent(filename, parentSha);
-            }
-
-            // Calculate diff
-            if (currentJson != null) {
-                return diffJson(parentJson, currentJson);
-            }
-
-            return new ArrayList<>();
+            return allChanges;
         } catch (Exception e) {
             System.err.println("Error fetching commit changes: " + e.getMessage());
             return new ArrayList<>();
@@ -228,6 +257,8 @@ public class ExcelService {
         allSheets.addAll(oldSheets.keySet());
         allSheets.addAll(newSheets.keySet());
 
+        System.out.println("Comparing " + allSheets.size() + " sheets...");
+
         for (String sheet : allSheets) {
             Map<String, JsonNode> oldCells = oldSheets.getOrDefault(sheet, Collections.<String, JsonNode>emptyMap());
             Map<String, JsonNode> newCells = newSheets.getOrDefault(sheet, Collections.<String, JsonNode>emptyMap());
@@ -235,6 +266,9 @@ public class ExcelService {
             Set<String> allKeys = new HashSet<String>();
             allKeys.addAll(oldCells.keySet());
             allKeys.addAll(newCells.keySet());
+
+            // System.out.println("Sheet " + sheet + ": comparing " + allKeys.size() + "
+            // cells");
 
             for (String key : allKeys) {
                 JsonNode oldCell = oldCells.get(key);
