@@ -87,7 +87,8 @@ body {
     font-weight: 500;
 }
 
-.nav-link:hover, .nav-link.active {
+.nav-link:hover,
+.nav-link.active {
     color: var(--color-white);
     background: rgba(255, 255, 255, 0.1);
 }
@@ -503,9 +504,14 @@ tr:last-child td {
 }
 
 .changes-table-container {
-    overflow-x: auto;
+    overflow: auto;
+    /* Handle both x and y */
+    max-height: 400px;
     border-radius: 8px;
     border: 1px solid rgba(0, 0, 0, 0.1);
+    position: relative;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-teal) rgba(0, 0, 0, 0.1);
 }
 
 .changes-table {
@@ -515,10 +521,18 @@ tr:last-child td {
 }
 
 .changes-table thead {
+    /* Sticky needs to be on th for borders to collapse correctly usually,
+       but background can be here. Removing sticky from thead to avoid conflicts */
     background: linear-gradient(135deg, var(--color-teal), var(--color-mint));
 }
 
 .changes-table th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--color-teal);
+    /* Fallback */
+    background: linear-gradient(135deg, var(--color-teal), var(--color-mint));
     padding: 0.875rem 1rem;
     text-align: left;
     font-weight: 600;
@@ -527,11 +541,14 @@ tr:last-child td {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .changes-table td {
     padding: 0.875rem 1rem;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    background-color: var(--color-white);
+    /* Ensure visible background */
 }
 
 .changes-table tbody tr:hover {
@@ -758,4 +775,114 @@ tr:last-child td {
 .multi-select-option.selected {
     background: rgba(39, 119, 119, 0.1);
     font-weight: 600;
+}
+
+/* Grouped Change Preview */
+.file-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.file-group {
+    border: 1px solid rgba(39, 119, 119, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--color-white);
+    transition: all var(--transition-fast);
+}
+
+.file-group:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.file-header {
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    background: rgba(39, 119, 119, 0.03);
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--transition-fast);
+}
+
+.file-header:hover {
+    background: rgba(39, 119, 119, 0.08);
+}
+
+.file-header.expanded {
+    background: rgba(39, 119, 119, 0.1);
+    border-bottom: 1px solid rgba(39, 119, 119, 0.1);
+}
+
+.file-icon {
+    font-size: 1.25rem;
+    margin-right: 0.75rem;
+}
+
+.file-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--color-teal);
+}
+
+.file-content {
+    padding: 1rem;
+    background: #fafafa;
+}
+
+.sheet-group {
+    background: var(--color-white);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.sheet-group:last-child {
+    margin-bottom: 0;
+}
+
+.sheet-header {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--color-white);
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+    transition: all var(--transition-fast);
+}
+
+.sheet-header:hover {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.sheet-content {
+    padding: 1rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.toggle-icon {
+    display: inline-block;
+    width: 20px;
+    margin-right: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-gray-500);
+    transition: transform var(--transition-fast);
+}
+
+.sheet-name {
+    font-weight: 500;
+    font-size: 0.9375rem;
+    color: var(--color-charcoal);
+}
+
+.count-label {
+    margin-left: 0.5rem;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.show-more-container {
+    text-align: center;
 }
